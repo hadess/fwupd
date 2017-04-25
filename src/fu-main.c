@@ -38,6 +38,7 @@
 
 #include "fu-debug.h"
 #include "fu-device.h"
+#include "fu-hwids.h"
 #include "fu-plugin-private.h"
 #include "fu-keyring.h"
 #include "fu-pending.h"
@@ -72,6 +73,7 @@ typedef struct {
 	guint			 coldplug_delay;
 	GPtrArray		*plugins;	/* of FuPlugin */
 	GHashTable		*plugins_hash;	/* of name : FuPlugin */
+	GHashTable		*hwids;		/* of hwid : 1 */
 } FuMainPrivate;
 
 typedef struct {
@@ -2620,6 +2622,41 @@ fu_main_plugin_set_coldplug_delay_cb (FuPlugin *plugin, guint duration, FuMainPr
 }
 
 static gboolean
+fu_main_load_hwids (FuMainPrivate *priv, GError **error)
+{
+	g_autoptr(FuHwids) hwids = fu_hwids_new ();
+
+	/* read files in /sys */
+	if (!fu_hwids_setup (hwids, NULL, error))
+		return FALSE;
+
+	/* add GUIDs */
+	for (guint i = 0; i < 15; i++) {
+		g_autofree gchar *guid = NULL;
+		g_autofree gchar *key = NULL;
+		g_autofree gchar *values = NULL;
+		g_autoptr(GError) error_local = NULL;
+
+		/* get the GUID and add to hash */
+		key = g_strdup_printf ("HardwareID-%u", i);
+		guid = fu_hwids_get_guid (hwids, key, &error_local);
+		if (guid == NULL) {
+			g_debug ("%s is not available, %s", key, error_local->message);
+			continue;
+		}
+		g_hash_table_insert (priv->hwids,
+				     g_strdup (guid),
+				     GUINT_TO_POINTER (1));
+
+		/* show what makes up the GUID */
+		values = fu_hwids_get_replace_values (hwids, key, NULL);
+		g_debug ("{%s}   <- %s", guid, values);
+	}
+
+	return TRUE;
+}
+
+static gboolean
 fu_main_load_plugins (FuMainPrivate *priv, GError **error)
 {
 	const gchar *fn;
@@ -2650,6 +2687,7 @@ fu_main_load_plugins (FuMainPrivate *priv, GError **error)
 		filename = g_build_filename (PLUGINDIR, fn, NULL);
 		plugin = fu_plugin_new ();
 		fu_plugin_set_usb_context (plugin, priv->usb_ctx);
+		fu_plugin_set_hwids (plugin, priv->hwids);
 		g_debug ("adding plugin %s", filename);
 		if (!fu_plugin_open (plugin, filename, &error_local)) {
 			g_warning ("failed to open plugin %s: %s",
@@ -2831,6 +2869,14 @@ main (int argc, char *argv[])
 		goto out;
 	}
 
+	/* load the hwids */
+	priv->hwids = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+	if (!fu_main_load_hwids (priv, &error)) {
+		g_print ("failed to load hwids: %s\n", error->message);
+		retval = EXIT_FAILURE;
+		goto out;
+	}
+
 	/* load plugin */
 	priv->plugins = g_ptr_array_new_with_free_func ((GDestroyNotify) g_object_unref);
 	priv->plugins_hash = g_hash_table_new_full (g_str_hash, g_str_equal,
@@ -2918,6 +2964,8 @@ out:
 			g_ptr_array_unref (priv->plugins);
 		if (priv->plugins_hash != NULL)
 			g_hash_table_unref (priv->plugins_hash);
+		if (priv->hwids != NULL)
+			g_hash_table_unref (priv->hwids);
 		g_ptr_array_unref (priv->devices);
 		g_free (priv);
 	}
