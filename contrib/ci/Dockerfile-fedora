@@ -1,0 +1,8 @@
+FROM fedora:26
+
+RUN dnf -y update
+RUN dnf -y install redhat-rpm-config
+RUN dnf -y builddep fwupd
+
+RUN mkdir /build
+WORKDIR /build
