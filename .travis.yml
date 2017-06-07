@@ -6,9 +6,9 @@ services:
   - docker
 
 before_script:
-  - docker build -t packagekit-debian -f tests/ci/Dockerfile-debian .
-  - docker build -t packagekit-fedora -f tests/ci/Dockerfile-fedora .
+  - docker build -t packagekit-fedora -f contrib/ci/Dockerfile-fedora .
+  - docker build -t packagekit-debian -f contrib/ci/Dockerfile-debian .
 
 script:
-  - docker run -t -v `pwd`:/build packagekit-debian ./contrib/ci/build_and_test.sh
   - docker run -t -v `pwd`:/build packagekit-fedora ./contrib/ci/build_and_test.sh
+  - docker run -t -v `pwd`:/build packagekit-debian ./contrib/ci/build_and_test.sh
